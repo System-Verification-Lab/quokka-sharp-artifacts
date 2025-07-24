@@ -1,0 +1,1 @@
+Benchmark datasets, CNF encodings, and evaluation scripts supporting multiple research papers based on Quokka#, a tool for SAT- and #SAT-based quantum circuit synthesis and verification. Includes input circuits, experiment data, and automation scripts for reproducibility.
