@@ -98,10 +98,10 @@ def get_data_from_algo_file_name(file_name):
 	"""
 	Extract algorithm-related data from the file name.
 	"""
-	match = re.match(r"(\w+)_(\w+)_(\w+)_([\w\d]+)_(\d+)\.qasm", file_name)
+	match = re.match(r"(\w+)_(\w+)_(\w+)_(\w+)_([\w\d]+)_(\d+)\.qasm", file_name)
 	if not match:
-		raise ValueError(f"Invalid file name format: {file_name}")
-	return (match.group(0), int(match.group(5)))
+		return (file_name.replace(".qasm", ""), None)
+	return (match.group(1), int(match.group(6)))
 
 def get_file_path(file_name, mod, benchmark_folder_name):
 	"""
