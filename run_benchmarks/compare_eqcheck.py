@@ -9,13 +9,19 @@ import subprocess
 benchmark_folder = os.path.join("algorithm")
 benchmarks_list = utils.get_benchmark_list_from_file("compare_benchmarks_list.txt")
 
-results_file_name = "compare_simulations.csv"
-df_columns = ["qubits", "algo", "tool", "result", "time"]
+results_file_name = "compare_eqcheck.csv"
+df_columns = ["modification", "qubits", "algo", "tool", "result", "time"]
 
+modifications = ["opt", "shift4"]
 quokka_bases = ["comp", "pauli"]
-quokka_measurement = "allzero"
-
-sliqsim_measurement = lambda qubits: f"amp {'0'*qubits};"
+quokka_checks = {
+	"comp": "cyclic",
+	"pauli": "linear"
+}
+quokka_threads = {
+	"comp": 1,
+	"pauli": 16
+}
 
 def get_results():
 	return utils.get_results_from_file(results_file_name, df_columns)
@@ -25,23 +31,13 @@ def update_results(results_df):
 
 def sort_results():
 	results_df = get_results()
-	results_df.sort_values(by=["algo", "qubits", "tool"], inplace=True)
+	results_df.sort_values(by=["modification", "algo", "qubits", "tool"], inplace=True)
 	update_results(results_df)
 
 def check_results():
 	results_df = get_results()
-	time_over_timeout_allowed = 0 #seconds
-	result_accuracy = 1e-6
-	for exp, results in results_df.groupby(["qubits", "algo"]):
-		assert len(results) == 3, f"Expected 3 results for {exp}, but found {len(results)}\n{results}"
-
-		for timeout_result in results[results["result"] == "TIMEOUT"].itertuples():
-			assert abs(timeout_result.time - utils.timeout) <= time_over_timeout_allowed, f"Timeout result for {exp} is not close to timeout: {timeout_result.time}"
-
-		non_timeout_results = results[results["result"] != "TIMEOUT"]
-		min_result = non_timeout_results["result"].min()
-		max_result = non_timeout_results["result"].max()
-		assert max_result - min_result <= result_accuracy, f"Non-timeout results for {exp} are not similar: {min_result} vs {max_result}\n{non_timeout_results}"
+	assert all(results_df[results_df["modification"] == "opt"]["results"].isin(["TIMEOUT", True]))
+	assert all(results_df[results_df["modification"] != "opt"]["results"].isin(["TIMEOUT", False]))
 
 def draw_figures():
 	results_df = get_results()
@@ -53,57 +49,47 @@ def draw_figures():
 
 	results_df["Run Time (sec)"] = results_df.apply(compute_to_print, axis=1)
 
-	results_df.pivot_table(
-		values=["Run Time (sec)"], 
-		index=["algo", "qubits"],
-		columns=["tool"],
-		aggfunc="sum"
-		).to_latex(
-		utils.get_results_file_path(results_file_name).replace(".csv", f".tex"),
-		# column_format="lccc",
-		multirow=True, multicolumn=True, na_rep=""
-		)
+	for mod in modifications:
+		results_df[results_df["modification"] == mod].pivot_table(
+			values=["Run Time (sec)"],
+			index=["algo", "qubits"],
+			columns=["tool"],
+			aggfunc="sum"
+			).to_latex(
+			utils.get_results_file_path(results_file_name).replace(".csv", f"_{mod}.tex"),
+			# column_format="lccc",
+			multirow=True, multicolumn=True, na_rep=""
+			)
 	
-def get_run_data(algo, qubits, tool):
+def get_run_data(mod, algo, qubits, tool):
 	return {
+		"modification": mod,
 		"algo": algo,
 		"qubits": qubits,
 		"tool": tool
 	}
 
-def run_QuokkaSharp(file_name):
+def run_QuokkaSharp(file_name, mod):
 	results_df = get_results()
-	file_path = utils.get_file_path(file, "origin", benchmark_folder)
+	origin_file = utils.get_file_path(file, "origin", benchmark_folder)
+	mod_file = utils.get_file_path(file, mod, benchmark_folder)
 	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
 	if not qubits:
-		qubits = get_qubits_from_file(file_path)
+		qubits = get_qubits_from_file(origin_file)
 	new = False
 	for basis in quokka_bases:
-		run_data = get_run_data(algo_name, qubits, f"quokka-sharp-{basis}")
+		run_data = get_run_data(mod, algo_name, qubits, f"quokka-sharp-{basis}")
 		if utils.data_exists(run_data, results_df):
 			continue
 
 		start_time = time.time()
-		result = qk.functionalities.sim(file_path, basis, quokka_measurement)
+		result = qk.functionalities.eq(origin_file, mod_file, basis, quokka_checks[basis], N=quokka_threads[basis])
 		end_time = time.time()
 
 		results_df = utils.add_result_to_df(run_data, result, end_time-start_time, results_df)
 		utils.save_results_to_file(results_file_name, results_df)
 		new = True
 	return new
-
-def get_SliQSim_obs_file_path(qubits):
-	obs_file_path = os.path.join(".", "temp", f"SliQSim_{qubits}_obs.obs")
-	if not os.path.exists(obs_file_path):
-		os.makedirs("temp", exist_ok=True)
-		with open(obs_file_path, "w") as f:
-			f.write(f"{sliqsim_measurement(qubits)};\n")
-	return obs_file_path
-
-def remove_temp_folder():
-	temp_folder = os.path.join(".", "temp")
-	if os.path.exists(temp_folder):
-		shutil.rmtree(temp_folder)
 
 def get_qubits_from_file(file_path):
 	with open(file_path, "r") as f:
@@ -113,22 +99,21 @@ def get_qubits_from_file(file_path):
 				return int(match.group(1))
 	return None
 
-def run_SliQSim(file_name):
+def run_SliQSim(file_name, mod):
 	results_df = get_results()
-	file_path = utils.get_file_path(file, "origin", benchmark_folder)
+	origin_file = utils.get_file_path(file, "origin", benchmark_folder)
+	mod_file = utils.get_file_path(file, mod, benchmark_folder)
 	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
 	if not qubits:
-		qubits = get_qubits_from_file(file_path)
-	run_data = get_run_data(algo_name, qubits, "SliQSim")
+		qubits = get_qubits_from_file(origin_file)
+	run_data = get_run_data(mod, algo_name, qubits, "SliQEC")
 	if utils.data_exists(run_data, results_df):
 		return False
-	obs_file_path = get_SliQSim_obs_file_path(qubits)
 
 	cmd = [
-		"../../SliQSim/SliQSim",
-		"--sim_qasm", file_path,
-		"--obs_file", obs_file_path,
-		"--type", "2"
+		"../../SliQEC/SliQEC",
+		"--circuit1", origin_file,
+		"--circuit2", mod_file,
 	]
 
 	try:
@@ -151,12 +136,13 @@ def run_SliQSim(file_name):
 
 
 for file in tqdm(benchmarks_list, desc="Processing files", unit="file"):
-	new = run_QuokkaSharp(file)
-	new |= run_SliQSim(file)
+	new = False
+	for mod in modifications:
+		new |= run_QuokkaSharp(file, mod)
+		new |= run_SliQSim(file, mod)
 	if new:
 		draw_figures()
 
-remove_temp_folder()
 sort_results()
 check_results()
 draw_figures()
