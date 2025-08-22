@@ -34,6 +34,7 @@ def sort_results():
 def check_results():
 	results_df = get_results()
 	time_over_timeout_allowed = 0 #seconds
+	result_accuracy = 1e-6
 	for exp, results in results_df.groupby(["qubits", "algo"]):
 		assert len(results) == 3, f"Expected 3 results for {exp}, but found {len(results)}\n{results}"
 
@@ -43,7 +44,7 @@ def check_results():
 		non_timeout_results = results[results["result"] != "TIMEOUT"]
 		min_result = non_timeout_results["result"].min()
 		max_result = non_timeout_results["result"].max()
-		assert max_result - min_result <= utils.FPE, f"Non-timeout results for {exp} are not similar: {min_result} vs {max_result}"
+		assert max_result - min_result <= result_accuracy, f"Non-timeout results for {exp} are not similar: {min_result} vs {max_result}\n{non_timeout_results}"
 
 def draw_figures():
 	results_df = get_results()
@@ -145,7 +146,7 @@ def run_SliQSim(file_name):
 		assert result_matches is not None, f"Could not find result in SliQSim output:\n{output}"
 		assert len(result_matches.groups()) == 1, f"Expected one result match, got {len(result_matches.groups())} in output:\n{output}"
 		runtime = end_time - start_time
-		result = result_matches.group(1)
+		result = float(result_matches.group(1))**2
 
 	results_df = utils.add_result_to_df(run_data, result, runtime, results_df)
 	utils.save_results_to_file(results_file_name, results_df)
@@ -162,5 +163,4 @@ remove_temp_folder()
 sort_results()
 check_results()
 draw_figures()
-print(get_results())
 
