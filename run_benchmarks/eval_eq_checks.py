@@ -8,7 +8,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 benchmark_folder = os.path.join("random", "uniform")
-benchmarks_list = utils.get_benchmark_files(benchmark_folder)
+benchmarks_list = utils.get_benchmark_list_from_folder(benchmark_folder)
 
 results_file_name = "eq_checks.csv"
 df_columns = ["qubits", "depth", "seed", "mod", "basis", "check", "result", "time"]

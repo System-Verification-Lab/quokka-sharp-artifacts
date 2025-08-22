@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from itertools import cycle
+import re
 
 from quokka_sharp.config import CONFIG
 
@@ -61,7 +62,7 @@ def get_benchmark_path():
 	"""
 	return benchmark_path
 
-def get_benchmark_files(benchmark_name):
+def get_benchmark_list_from_folder(benchmark_name):
 	"""
 	Get a list of benchmark files for a given benchmark name.
 	
@@ -75,6 +76,32 @@ def get_benchmark_files(benchmark_name):
 	if not os.path.exists(benchmark_folder):
 		raise FileNotFoundError(f"Benchmark folder '{benchmark_folder}' does not exist.")
 	return [file for file in os.listdir(benchmark_folder) if file.endswith(".qasm")]
+
+def get_benchmark_list_from_file(benchmarks_list_file):
+	"""
+	Get a list of benchmark files from a text file.
+	
+	Args:
+		benchmarks_list_file (str): The path to the text file containing benchmark file names.
+		
+	Returns:
+		list: A list of benchmark file names.
+	"""
+	if not os.path.exists(benchmarks_list_file):
+		raise FileNotFoundError(f"Benchmarks list file '{benchmarks_list_file}' does not exist.")
+
+	with open(benchmarks_list_file, "r") as f:
+		benchmarks = [line.strip() for line in f if line.strip()]
+	return benchmarks
+
+def get_data_from_algo_file_name(file_name):
+	"""
+	Extract algorithm-related data from the file name.
+	"""
+	match = re.match(r"(\w+)_(\w+)_(\w+)_([\w\d]+)_(\d+)\.qasm", file_name)
+	if not match:
+		raise ValueError(f"Invalid file name format: {file_name}")
+	return (match.group(0), int(match.group(5)))
 
 def get_file_path(file_name, mod, benchmark_folder_name):
 	"""

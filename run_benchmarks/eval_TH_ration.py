@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 benchmark_folder = os.path.join("random", "TH_ratio")
-benchmarks_list = utils.get_benchmark_files(benchmark_folder)
+benchmarks_list = utils.get_benchmark_list_from_folder(benchmark_folder)
 
 results_file_name = "TH_rations.csv"
 df_columns = ["qubits", "depth", "seed", "ratio", "measurement", "basis", "result", "time"]

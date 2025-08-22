@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 benchmark_folder = os.path.join("random", "uniform")
-benchmarks_list = utils.get_benchmark_files(benchmark_folder)
+benchmarks_list = utils.get_benchmark_list_from_folder(benchmark_folder)
 
 results_file_name = "simulations.csv"
 df_columns = ["qubits", "depth", "seed", "measurement", "basis", "result", "time"]
