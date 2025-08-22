@@ -3,5 +3,5 @@ include "qelib1.inc";
 qreg q[1];
 rz(0.25*pi) q[0];
 h q[0];
-rz(3.1416926535897933) q[0];
+z q[0];
 h q[0];
