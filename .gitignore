@@ -1,1 +1,3 @@
 run_benchmarks/__pycache__/utils.cpython-312.pyc
+run_benchmarks/results/*.tex
+run_benchmarks/results/*.png

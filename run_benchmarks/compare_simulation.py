@@ -135,7 +135,8 @@ def run_SliQSim(file_name):
 		start_time = time.time()
 		output = subprocess.check_output(cmd, universal_newlines=True, timeout=utils.timeout)
 		end_time = time.time()
-	except subprocess.TimeoutExpired as e:
+	except subprocess.TimeoutExpired:
+		end_time = time.time()
 		result = "TIMEOUT"
 		runtime = end_time - start_time
 	else:
