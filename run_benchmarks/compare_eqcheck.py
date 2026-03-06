@@ -1,21 +1,28 @@
 import shutil
 import os, time
-import quokka_sharp as qk
 import re
 import utils
 from tqdm import tqdm
 import subprocess
 from mqt import qcec
+from OtherToolPath import SliQECPath, ConfigGPMC, ConfigGanak
+import quokka_sharp as qk
+import quokka_sharp.config as qc
 
 
 benchmark_folder = os.path.join("algorithm")
-benchmarks_list = utils.get_benchmark_list_from_file("compare_benchmarks_list.txt")
+# benchmark_folder = os.path.join("ModifiedRevLib")
 
-results_file_name = "compare_eqcheck.csv"
+# benchmarks_list = utils.get_benchmark_list_from_file("compare_benchmarks_list.txt")
+benchmarks_list = utils.get_benchmark_list_from_file("benchlist-eq-phaseshift-ganak.txt")
+
+results_file_name = "compare_eqcheck_qcec.csv"
 df_columns = ["modification", "qubits", "algo", "tool", "result", "time"]
 
-modifications = ["opt", "gm"]
+# modifications = ["opt", "gm"]
+modifications = ["shift4"]
 quokka_bases = ["comp", "pauli"]
+# quokka_bases = ["comp"]
 quokka_checks = {
 	"comp": "cyclic",
 	"pauli": "linear"
@@ -54,6 +61,7 @@ def draw_figures():
 		return f"{row['time']:.3f}"
 
 	results_df["Run Time (sec)"] = results_df.apply(compute_to_print, axis=1)
+	print(results_df)
 
 	for mod in modifications:
 		results_df[results_df["modification"] == mod].pivot_table(
@@ -75,48 +83,119 @@ def get_run_data(mod, algo, qubits, tool):
 		"tool": tool
 	}
 
-def run_QuokkaSharp(file_name, mod):
-	results_df = get_results()
-	origin_file = utils.get_file_path(file, "origin", benchmark_folder)
-	mod_file = utils.get_file_path(file, mod, benchmark_folder)
-	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
-	if not qubits:
-		qubits = get_qubits_from_file(origin_file)
-	new = False
-	for basis in quokka_bases:
-		run_data = get_run_data(mod, algo_name, qubits, f"quokka-sharp-{basis}")
-		if utils.data_exists(run_data, results_df):
-			continue
+def run_QuokkaSharp(file_name, mod, tool):
+    if tool == "gpmc":
+        os.environ["QUOKKA_CONFIG"] = ConfigGPMC
+    elif tool == "ganak":
+        os.environ["QUOKKA_CONFIG"] = ConfigGanak
+    else:
+        raise Exception("Tool does not support")
+    qc.reload_config()
+    print("tool =", tool, "| ToolInvocation =", qc.CONFIG["ToolInvocation"])    
+    results_df = get_results()
+    origin_file = utils.get_file_path(file_name, "origin", benchmark_folder)
+    mod_file = utils.get_file_path(file_name, mod, benchmark_folder)
+    algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
+    
+    if not qubits:
+        qubits = get_qubits_from_file(origin_file)
+    new = False
+    for basis in quokka_bases:
+        run_data = get_run_data(mod, algo_name, qubits, f"quokka-sharp-{basis}-{tool}")
+        if utils.data_exists(run_data, results_df):
+            continue
+		
+        start_time = time.time()
+        result = qk.functionalities.eq(origin_file, mod_file, basis, quokka_checks[basis], N=quokka_threads[basis], cnf_file_root="/Users/meij/Downloads/ganak-mac-arm64/ganak_cnf")
+        
+        end_time = time.time()
+        print("")
+        results_df = utils.add_result_to_df(run_data, result, end_time-start_time, results_df)
+        utils.save_results_to_file(results_file_name, results_df)
+        new = True
+    return new
 
-		start_time = time.time()
-		result = qk.functionalities.eq(origin_file, mod_file, basis, quokka_checks[basis], N=quokka_threads[basis])
-		end_time = time.time()
+# def run_QCEC(file_name, mod):
+# 	results_df = get_results()
+# 	origin_file = utils.get_file_path(file, "origin", benchmark_folder)
+# 	mod_file = utils.get_file_path(file, mod, benchmark_folder)
+# 	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
+# 	if not qubits:
+# 		qubits = get_qubits_from_file(origin_file)
 
-		results_df = utils.add_result_to_df(run_data, result, end_time-start_time, results_df)
-		utils.save_results_to_file(results_file_name, results_df)
-		new = True
-	return new
+# 	run_data = get_run_data(mod, algo_name, qubits, f"QCEC")
+# 	if utils.data_exists(run_data, results_df):
+# 		return False
+	
+# 	start_time = time.time()
+
+# 	result = (str(qcec.verify(origin_file, mod_file).equivalence) == "EquivalenceCriterion.equivalent_up_to_global_phase")
+# 	end_time = time.time()
+
+# 	results_df = utils.add_result_to_df(run_data, result, end_time-start_time, results_df)
+# 	utils.save_results_to_file(results_file_name, results_df)
+# 	return True
+
+import time
+import multiprocessing as mp
+
+QCEC_TIMEOUT = 3600  # 1 hour
+
+def _qcec_verify_worker(origin_file, mod_file, queue):
+    try:
+        v = qcec.verify(origin_file, mod_file, run_zx_checker=False)
+        queue.put(v.equivalence)
+    except Exception as e:
+        queue.put(e)
 
 def run_QCEC(file_name, mod):
-	results_df = get_results()
-	origin_file = utils.get_file_path(file, "origin", benchmark_folder)
-	mod_file = utils.get_file_path(file, mod, benchmark_folder)
-	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
-	if not qubits:
-		qubits = get_qubits_from_file(origin_file)
+    results_df = get_results()
 
-	run_data = get_run_data(mod, algo_name, qubits, f"QCEC")
-	if utils.data_exists(run_data, results_df):
-		return False
-	
-	start_time = time.time()
+    origin_file = utils.get_file_path(file_name, "origin", benchmark_folder)
+    mod_file = utils.get_file_path(file_name, mod, benchmark_folder)
 
-	result = (str(qcec.verify(origin_file, mod_file).equivalence) == "EquivalenceCriterion.equivalent_up_to_global_phase")
-	end_time = time.time()
+    algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
+    if not qubits:
+        qubits = get_qubits_from_file(origin_file)
 
-	results_df = utils.add_result_to_df(run_data, result, end_time-start_time, results_df)
-	utils.save_results_to_file(results_file_name, results_df)
-	return True
+    run_data = get_run_data(mod, algo_name, qubits, "QCEC")
+    if utils.data_exists(run_data, results_df):
+        return False
+
+    start_time = time.time()
+
+    q = mp.Queue()
+    p = mp.Process(
+        target=_qcec_verify_worker,
+        args=(origin_file, mod_file, q)
+    )
+
+    p.start()
+    p.join(QCEC_TIMEOUT)
+
+    if p.is_alive():
+        p.terminate()
+        p.join()
+        result = "TIMEOUT"
+    else:
+        out = q.get()
+        if isinstance(out, Exception):
+            result = "ERROR"
+        else:
+            result = (str(out) == "EquivalenceCriterion.equivalent_up_to_global_phase")
+
+    end_time = time.time()
+
+    results_df = utils.add_result_to_df(
+        run_data,
+        result,
+        end_time - start_time,
+        results_df
+    )
+    utils.save_results_to_file(results_file_name, results_df)
+
+    return True
+
 
 def get_qubits_from_file(file_path):
 	with open(file_path, "r") as f:
@@ -126,7 +205,7 @@ def get_qubits_from_file(file_path):
 				return int(match.group(1))
 	return None
 
-def run_SliQSim(file_name, mod):
+def run_SliQEC(file_name, mod):
 	results_df = get_results()
 	origin_file = utils.get_file_path(file, "origin", benchmark_folder)
 	mod_file = utils.get_file_path(file, mod, benchmark_folder)
@@ -138,7 +217,7 @@ def run_SliQSim(file_name, mod):
 		return False
 
 	cmd = [
-		"../../SliQEC/SliQEC",
+		SliQECPath,
 		"--circuit1", origin_file,
 		"--circuit2", mod_file,
 	]
@@ -163,16 +242,114 @@ def run_SliQSim(file_name, mod):
 	return True
 
 
-for file in tqdm(benchmarks_list, desc="Processing files", unit="file"):
-	new = False
-	for mod in modifications:
-		new |= run_QuokkaSharp(file, mod)
-		new |= run_SliQSim(file, mod)
-		new |= run_QCEC(file, mod)
-	if new:
-		draw_figures()
+# for file in tqdm(benchmarks_list, desc="Processing files", unit="file"):
+# 	new = False
+# 	for mod in modifications:
+# 		new |= run_QuokkaSharp(file, mod, "gpmc")
+# 		new |= run_QuokkaSharp(file, mod, "ganak")
+# 		new |= run_SliQEC(file, mod)
+		# new |= run_QCEC(file, mod)
+	# if new:
+	# 	draw_figures()
 
-sort_results()
-check_results()
-draw_figures()
+
+total = len(benchmarks_list) * len(modifications) * 3
+pbar = tqdm(total=total, desc="All runs", unit="run")
+
+# for file in benchmarks_list:
+#     new = False
+#     for mod in modifications:
+#         t0 = time.perf_counter()
+#         new |= run_QuokkaSharp(file, mod, "gpmc")
+#         dt = time.perf_counter() - t0
+#         tqdm.write(f"[DONE] file={file}, mod={mod}, tool=gpmc, time={dt:.2f}s")
+#         pbar.update(1)
+
+#         t0 = time.perf_counter()
+#         new |= run_QuokkaSharp(file, mod, "ganak")
+#         dt = time.perf_counter() - t0
+#         tqdm.write(f"[DONE] file={file}, mod={mod}, tool=ganak, time={dt:.2f}s")
+#         pbar.update(1)
+
+#         t0 = time.perf_counter()
+#         new |= run_SliQEC(file, mod)
+#         dt = time.perf_counter() - t0
+#         tqdm.write(f"[DONE] file={file}, mod={mod}, tool=SliQEC, time={dt:.2f}s")
+#         pbar.update(1)
+
+# pbar.close()
+
+
+def main():
+	for file in benchmarks_list:
+		new = False
+		for mod in modifications:
+			print(file)
+			# QuokkaSharp gpmc
+			# t0 = time.perf_counter()
+			# new |= run_QuokkaSharp(file, mod, "gpmc")
+			# dt = time.perf_counter() - t0
+			# print(f"[DONE] file={file}, mod={mod}, tool=gpmc, time={dt:.2f}s")
+
+			# # QuokkaSharp ganak
+			t0 = time.perf_counter()
+			new |= run_QuokkaSharp(file, mod, "ganak")
+			dt = time.perf_counter() - t0
+			print(f"[DONE] file={file}, mod={mod}, tool=ganak, time={dt:.2f}s")
+
+			# SliQEC
+			# t0 = time.perf_counter()
+			# new |= run_SliQEC(file, mod)
+			# dt = time.perf_counter() - t0
+			# print(f"[DONE] file={file}, mod={mod}, tool=SliQEC, time={dt:.2f}s")
+
+			# qcec
+			# t0 = time.perf_counter()
+			# new |= run_QCEC(file, mod)
+			# dt = time.perf_counter() - t0
+			# print(f"[DONE] file={file}, mod={mod}, tool=qcec, time={dt:.2f}s")
+		
+# for file in benchmarks_list:
+#     new = False
+#     for mod in modifications:
+#         # QuokkaSharp gpmc
+#         t0 = time.perf_counter()
+#         new |= run_QuokkaSharp(file, mod, "gpmc")
+#         dt = time.perf_counter() - t0
+
+#         tqdm.write(
+#             f"[DONE] file={file}, mod={mod}, tool=QuokkaSharp:gpmc, "
+#             f"time={dt:.2f}s"
+#         )
+#         pbar.update(1)
+
+#         # QuokkaSharp ganak
+#         t0 = time.perf_counter()
+#         new |= run_QuokkaSharp(file, mod, "ganak")
+#         dt = time.perf_counter() - t0
+
+#         tqdm.write(
+#             f"[DONE] file={file}, mod={mod}, tool=QuokkaSharp:ganak, "
+#             f"time={dt:.2f}s"
+#         )
+#         pbar.update(1)
+
+#         # SliQEC
+#         t0 = time.perf_counter()
+#         new |= run_SliQEC(file, mod)
+#         dt = time.perf_counter() - t0
+
+#         tqdm.write(
+#             f"[DONE] file={file}, mod={mod}, tool=SliQEC, "
+#             f"time={dt:.2f}s"
+#         )
+#         pbar.update(1)
+
+# pbar.close()
+if __name__ == "__main__":
+    mp.freeze_support()  # macOS/Windows spawn 安全写法
+    main()
+    sort_results()
+    check_results()
+    draw_figures()
 
