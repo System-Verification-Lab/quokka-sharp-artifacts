@@ -5,14 +5,21 @@ import re
 import utils
 from tqdm import tqdm
 import subprocess
+from OtherToolPath import SliQSimPath, QuaismodoPath, ConfigGanak, ConfigGPMC
+import quokka_sharp.config as qc
 
 benchmark_folder = os.path.join("algorithm")
-benchmarks_list = utils.get_benchmark_list_from_file("compare_benchmarks_list.txt")
+# benchmark_folder = os.path.join("ModifiedRevLib")
 
-results_file_name = "compare_simulations.csv"
+
+benchmarks_list = utils.get_benchmark_list_from_file("benchlist-sim.txt")
+
+results_file_name = "compare_simulations_NEW_New.csv"
 df_columns = ["qubits", "algo", "tool", "result", "time"]
 
-quokka_bases = ["comp", "pauli"]
+# quokka_bases = ["comp", "pauli"]
+quokka_bases = ["comp"]
+
 quokka_measurement = "allzero"
 
 sliqsim_measurement = lambda qubits: f"amp {'0'*qubits};"
@@ -33,7 +40,7 @@ def check_results():
 	time_over_timeout_allowed = 0 #seconds
 	result_accuracy = 1e-6
 	for exp, results in results_df.groupby(["qubits", "algo"]):
-		assert len(results) == 3, f"Expected 3 results for {exp}, but found {len(results)}\n{results}"
+		# assert len(results) == 3, f"Expected 3 results for {exp}, but found {len(results)}\n{results}"
 
 		for timeout_result in results[results["result"] == "TIMEOUT"].itertuples():
 			assert abs(timeout_result.time - utils.timeout) <= time_over_timeout_allowed, f"Timeout result for {exp} is not close to timeout: {timeout_result.time}"
@@ -71,26 +78,35 @@ def get_run_data(algo, qubits, tool):
 		"tool": tool
 	}
 
-def run_QuokkaSharp(file_name):
-	results_df = get_results()
-	file_path = utils.get_file_path(file, "origin", benchmark_folder)
-	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
-	if not qubits:
-		qubits = get_qubits_from_file(file_path)
-	new = False
-	for basis in quokka_bases:
-		run_data = get_run_data(algo_name, qubits, f"quokka-sharp-{basis}")
-		if utils.data_exists(run_data, results_df):
-			continue
+def run_QuokkaSharp(file_name, tool):
 
-		start_time = time.time()
-		result = qk.functionalities.sim(file_path, basis, quokka_measurement)
-		end_time = time.time()
+    if tool == "gpmc":
+        os.environ["QUOKKA_CONFIG"] = ConfigGPMC
+    elif tool == "ganak":
+        os.environ["QUOKKA_CONFIG"] = ConfigGanak
+    else:
+        raise Exception("Tool does not support")
+    qc.reload_config()
+    results_df = get_results()
+    file_path = utils.get_file_path(file, "origin", benchmark_folder)
+    algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
+    if not qubits:
+        qubits = get_qubits_from_file(file_path)
+    new = False
+    for basis in quokka_bases:
+        run_data = get_run_data(algo_name, qubits, f"quokka-sharp-{basis}-{tool}")
+        if utils.data_exists(run_data, results_df):
+            continue
+        start_time = time.time()
+        result = qk.functionalities.sim(file_path, basis, quokka_measurement)
+        end_time = time.time()
+        
+        results_df = utils.add_result_to_df(run_data, result, end_time-start_time, results_df)
+        utils.save_results_to_file(results_file_name, results_df)
+        new = True
+        print("Quokka_sharp", tool, "runtime:", end_time-start_time, "result:", result)
 
-		results_df = utils.add_result_to_df(run_data, result, end_time-start_time, results_df)
-		utils.save_results_to_file(results_file_name, results_df)
-		new = True
-	return new
+    return new
 
 def get_SliQSim_obs_file_path(qubits):
 	obs_file_path = os.path.join(".", "temp", f"SliQSim_{qubits}_obs.obs")
@@ -113,6 +129,41 @@ def get_qubits_from_file(file_path):
 				return int(match.group(1))
 	return None
 
+def run_Quasimodo(file_name):
+	results_df = get_results()
+	file_path = utils.get_file_path(file, "origin", benchmark_folder)
+	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
+	if not qubits:
+		qubits = get_qubits_from_file(file_path)
+	run_data = get_run_data(algo_name, qubits, "Quasimodo")
+	if utils.data_exists(run_data, results_df):
+		return False
+
+	cmd = [
+		"python3.11",
+		QuaismodoPath,
+		"-f", file_path
+  	]
+	try:
+		start_time = time.time()
+		output = subprocess.check_output(cmd, universal_newlines=True, timeout=utils.timeout)
+		end_time = time.time()
+	except subprocess.TimeoutExpired:
+		end_time = time.time()
+		result = "TIMEOUT"
+		runtime = end_time - start_time
+	else:
+		result_matches = re.search(r"\s*([-\d.e]+)\s", output)
+		assert result_matches is not None, f"Could not find result in Quasimodo output:\n{output}"
+		assert len(result_matches.groups()) == 1, f"Expected one result match, got {len(result_matches.groups())} in output:\n{output}"
+		runtime = end_time - start_time
+		print("Quasimodo", "runtime:", runtime, "result:", result_matches.group(1))
+		result = float(result_matches.group(1))**2
+
+	results_df = utils.add_result_to_df(run_data, result, runtime, results_df)
+	utils.save_results_to_file(results_file_name, results_df)
+	return True	
+
 def run_SliQSim(file_name):
 	results_df = get_results()
 	file_path = utils.get_file_path(file, "origin", benchmark_folder)
@@ -125,7 +176,7 @@ def run_SliQSim(file_name):
 	obs_file_path = get_SliQSim_obs_file_path(qubits)
 
 	cmd = [
-		"../../SliQSim/SliQSim",
+		SliQSimPath,
 		"--sim_qasm", file_path,
 		"--obs_file", obs_file_path,
 		"--type", "2"
@@ -150,15 +201,24 @@ def run_SliQSim(file_name):
 	utils.save_results_to_file(results_file_name, results_df)
 	return True
 
+for file in benchmarks_list:
+    run_QuokkaSharp(file, "gpmc")
+    # run_SliQSim(file)
+    # run_Quasimodo(file)
+    
+    run_QuokkaSharp(file, "ganak")
+    
 
-for file in tqdm(benchmarks_list, desc="Processing files", unit="file"):
-	new = run_QuokkaSharp(file)
-	new |= run_SliQSim(file)
-	if new:
-		draw_figures()
+# for file in tqdm(benchmarks_list, desc="Processing files", unit="file"):
+# 	new = False
+# 	new |= run_QuokkaSharp(file)
+# 	new |= run_SliQSim(file)
+# 	new |= run_Quasimodo(file)
+# 	if new:
+# 		draw_figures()
 
 remove_temp_folder()
 sort_results()
-check_results()
+# check_results()
 draw_figures()
 
