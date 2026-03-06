@@ -3,16 +3,17 @@ path=`dirname $PWD`
 dirs=(
 #"random/randqubitscale"
 #"random/randdepscale"
-"random/uniform"
+# "random/uniform"÷
 # "random/TH_ratio"
 # "algorithm"
+"ModifiedRevLib"
 # "add"
 )
 
 options=(
 "gm"
-"fp"
-"ps"
+# "fp"
+# "ps"
 )
 
 

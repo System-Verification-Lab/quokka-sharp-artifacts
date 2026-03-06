@@ -5,9 +5,10 @@ path=`dirname $PWD`
 dirs=(
 #"random/randqubitscale"
 #"random/randdepscale"
-"random/uniform"
+# "random/uniform"
 # "random/TH_ratio"
 # "algorithm"
+"ModifiedRevLib"
 # "add"
 )
 
@@ -20,7 +21,7 @@ for i in "${dirs[@]}"; do
         base_name=$(basename ${file})
         if [ ! -f "$DIR"/opt/"$base_name".opt.qasm ]; then
             echo $base_name
-            python3 zxopt.py "$file" "$DIR"/opt/"$base_name".opt.qasm
+            python3.11 zxopt.py "$file" "$DIR"/opt/"$base_name".opt.qasm
         fi
     done
 done
