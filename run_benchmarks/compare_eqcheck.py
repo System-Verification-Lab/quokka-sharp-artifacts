@@ -16,13 +16,14 @@ benchmark_folder = os.path.join("algorithm")
 # benchmarks_list = utils.get_benchmark_list_from_file("compare_benchmarks_list.txt")
 benchmarks_list = utils.get_benchmark_list_from_file("benchlist-eq-phaseshift-ganak.txt")
 
-results_file_name = "compare_eqcheck_qcec.csv"
+results_file_name = "test.csv"
 df_columns = ["modification", "qubits", "algo", "tool", "result", "time"]
 
 # modifications = ["opt", "gm"]
-modifications = ["shift4"]
-quokka_bases = ["comp", "pauli"]
-# quokka_bases = ["comp"]
+# modifications = ["shift4"]
+modifications = ["gm"]
+# quokka_bases = ["comp", "pauli"]
+quokka_bases = [ "comp"]
 quokka_checks = {
 	"comp": "cyclic",
 	"pauli": "linear"
@@ -45,6 +46,7 @@ def sort_results():
 
 def check_results():
 	results_df = get_results()
+	print(results_df)
 	assert all(results_df[results_df["modification"] == "opt"]["result"].isin(["TIMEOUT", "True", True])), "Opt results are not valid\n{}".format(results_df[results_df["modification"] == "opt"])
 	assert all(results_df[results_df["modification"] != "opt"]["result"].isin(["TIMEOUT", "False", False])), "GM results are not valid\n{}".format(results_df[results_df["modification"] != "opt"])
 
@@ -106,7 +108,7 @@ def run_QuokkaSharp(file_name, mod, tool):
             continue
 		
         start_time = time.time()
-        result = qk.functionalities.eq(origin_file, mod_file, basis, quokka_checks[basis], N=quokka_threads[basis], cnf_file_root="/Users/meij/Downloads/ganak-mac-arm64/ganak_cnf")
+        result = qk.functionalities.eq(origin_file, mod_file, basis, quokka_checks[basis], N=quokka_threads[basis], cnf_file_root="/Users/meij/Desktop/coding/Quokka/Untitled/GPMC/bin/cases")
         
         end_time = time.time()
         print("")
@@ -285,17 +287,17 @@ def main():
 		new = False
 		for mod in modifications:
 			print(file)
-			# QuokkaSharp gpmc
-			# t0 = time.perf_counter()
-			# new |= run_QuokkaSharp(file, mod, "gpmc")
-			# dt = time.perf_counter() - t0
-			# print(f"[DONE] file={file}, mod={mod}, tool=gpmc, time={dt:.2f}s")
+			# # QuokkaSharp gpmc
+			t0 = time.perf_counter()
+			new |= run_QuokkaSharp(file, mod, "gpmc")
+			dt = time.perf_counter() - t0
+			print(f"[DONE] file={file}, mod={mod}, tool=gpmc, time={dt:.2f}s")
 
 			# # QuokkaSharp ganak
-			t0 = time.perf_counter()
-			new |= run_QuokkaSharp(file, mod, "ganak")
-			dt = time.perf_counter() - t0
-			print(f"[DONE] file={file}, mod={mod}, tool=ganak, time={dt:.2f}s")
+			# t0 = time.perf_counter()
+			# new |= run_QuokkaSharp(file, mod, "ganak")
+			# dt = time.perf_counter() - t0
+			# print(f"[DONE] file={file}, mod={mod}, tool=ganak, time={dt:.2f}s")
 
 			# SliQEC
 			# t0 = time.perf_counter()

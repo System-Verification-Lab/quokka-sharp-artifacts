@@ -1,4 +1,4 @@
-// Used Gate Set: ['id', 'rz', 'sx', 'x', 'cx', 'measure', 'barrier']
+// Used Gate Set: ['id', 'rz', 'rx(pi/2)', 'x', 'cx', 'measure', 'barrier']
 OPENQASM 2.0;
 include "qelib1.inc";
 qreg q[15];

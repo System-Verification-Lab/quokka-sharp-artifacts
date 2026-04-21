@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-find ../ModifiedRevLib/ -name '*.qasm' -print0 | while IFS= read -r -d '' f; do
+find ../algorithm/origin/ -name '*.qasm' -print0 | while IFS= read -r -d '' f; do
+  # Replace sx with rx(pi/2) gates
+  sed -i '' 's|sx|rx(pi/2)|g' "$f"
+
   # Replace rotations with Z gates
   sed -i '' 's|rz(1.0\*pi)|z|g' "$f"
   sed -i '' 's|rz(3\*pi)|z|g' "$f"
@@ -21,6 +24,12 @@ find ../ModifiedRevLib/ -name '*.qasm' -print0 | while IFS= read -r -d '' f; do
   perl -pi -e 's|rz\(1\.25\*pi\) (.*)|z $1\nt $1|g' "$f"
   perl -pi -e 's|rz\(0\.75\*pi\) (.*)|s $1\nt $1|g' "$f"
 
-  # Replace rx(pi/2) with rx(0.5*pi)  (你注释和替换方向反了；下面是“0.5*pi -> pi/2”)
+  # Replace rx(pi/2) with rx(0.5*pi)  
   sed -i '' 's|rx(0.5\*pi)|rx(pi/2)|g' "$f"
+
+  # Remove lines starting with measure
+  sed -i '' '/^measure/d' "$f"
+
+  # Remove lines starting with barrier
+  sed -i '' '/^barrier/d' "$f"
 done

@@ -1,3 +1,4 @@
+from concurrent.futures import process
 import shutil
 import os, time
 import quokka_sharp as qk
@@ -7,14 +8,29 @@ from tqdm import tqdm
 import subprocess
 from OtherToolPath import SliQSimPath, QuaismodoPath, ConfigGanak, ConfigGPMC
 import quokka_sharp.config as qc
+from mqt.core import load
 
-benchmark_folder = os.path.join("algorithm")
-# benchmark_folder = os.path.join("ModifiedRevLib")
+from mqt.ddsim import CircuitSimulator
+# Evaluate per algorithm
 
+benchmark_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "benchmark")
+algorithm = "origin"
+benchmark_folder = os.path.join("algorithm", algorithm)  
+# benchmarks_list = [f for f in os.listdir(os.path.join(benchmark_path,benchmark_folder)) if os.path.isfile(os.path.join(benchmark_path,benchmark_folder, f))and f.endswith(".qasm")]
+benchmarks_list = utils.get_benchmark_list_from_file("benchlist_rebuttal.txt")
 
-benchmarks_list = utils.get_benchmark_list_from_file("benchlist-sim.txt")
+benchmarks_list.sort()
+print(benchmarks_list)
+results_file_name = f"compare_simulations_{algorithm}_rebuttal_new_instances.csv"
+folder = "/"
 
-results_file_name = "compare_simulations_NEW_New.csv"
+# benchmark_folder = os.path.join("algorithm")
+# # benchmark_folder = os.path.join("ModifiedRevLib")
+# benchmarks_list = utils.get_benchmark_list_from_file("benchlist-sim.txt")
+
+# results_file_name = "compare_simulations_NEW_New.csv"
+# folder = "origin"
+
 df_columns = ["qubits", "algo", "tool", "result", "time"]
 
 # quokka_bases = ["comp", "pauli"]
@@ -88,7 +104,7 @@ def run_QuokkaSharp(file_name, tool):
         raise Exception("Tool does not support")
     qc.reload_config()
     results_df = get_results()
-    file_path = utils.get_file_path(file, "origin", benchmark_folder)
+    file_path = utils.get_file_path(file, folder, benchmark_folder)
     algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
     if not qubits:
         qubits = get_qubits_from_file(file_path)
@@ -122,16 +138,16 @@ def remove_temp_folder():
 		shutil.rmtree(temp_folder)
 
 def get_qubits_from_file(file_path):
-	with open(file_path, "r") as f:
-		for line in f:
-			match = re.search(r"qreg q\[(\d+)\];", line)
-			if match:
-				return int(match.group(1))
-	return None
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            match = re.search(r"qreg q\[(\d+)\];", line)
+            if match:
+                return int(match.group(1))
+    return None
 
 def run_Quasimodo(file_name):
 	results_df = get_results()
-	file_path = utils.get_file_path(file, "origin", benchmark_folder)
+	file_path = utils.get_file_path(file, folder, benchmark_folder)
 	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
 	if not qubits:
 		qubits = get_qubits_from_file(file_path)
@@ -164,49 +180,93 @@ def run_Quasimodo(file_name):
 	utils.save_results_to_file(results_file_name, results_df)
 	return True	
 
-def run_SliQSim(file_name):
-	results_df = get_results()
-	file_path = utils.get_file_path(file, "origin", benchmark_folder)
-	algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
-	if not qubits:
-		qubits = get_qubits_from_file(file_path)
-	run_data = get_run_data(algo_name, qubits, "SliQSim")
-	if utils.data_exists(run_data, results_df):
-		return False
-	obs_file_path = get_SliQSim_obs_file_path(qubits)
+import subprocess
+import time
+import os
+import signal
 
-	cmd = [
-		SliQSimPath,
-		"--sim_qasm", file_path,
-		"--obs_file", obs_file_path,
-		"--type", "2"
-	]
+import subprocess
+import time
+import sys
 
-	try:
-		start_time = time.time()
-		output = subprocess.check_output(cmd, universal_newlines=True, timeout=utils.timeout)
-		end_time = time.time()
-	except subprocess.TimeoutExpired:
-		end_time = time.time()
-		result = "TIMEOUT"
-		runtime = end_time - start_time
-	else:
-		result_matches = re.search(r"\s*([-\d.e]+)\s", output)
-		assert result_matches is not None, f"Could not find result in SliQSim output:\n{output}"
-		assert len(result_matches.groups()) == 1, f"Expected one result match, got {len(result_matches.groups())} in output:\n{output}"
-		runtime = end_time - start_time
-		result = float(result_matches.group(1))**2
+import subprocess
+import time
+import sys
+import signal
+import os
 
-	results_df = utils.add_result_to_df(run_data, result, runtime, results_df)
-	utils.save_results_to_file(results_file_name, results_df)
-	return True
+def run_DDSim(file_name):
+    results_df = get_results()
+    file_path = utils.get_file_path(file_name, folder, benchmark_folder)
+
+    algo_name, qubits = utils.get_data_from_algo_file_name(file_name)
+    if not qubits:
+        qubits = get_qubits_from_file(file_path)
+
+    run_data = get_run_data(algo_name, qubits, "DDSim")
+
+    if utils.data_exists(run_data, results_df):
+        return False
+
+    cmd = [
+        "bash",
+        "-c",
+        f"exec timeout {utils.timeout}s {sys.executable} run_ddsim_single.py '{file_path}'"
+    ]
+
+    start_time = time.time()
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        preexec_fn=os.setsid   # 创建进程组（重要）
+    )
+
+    try:
+        output, stderr = process.communicate(timeout=utils.timeout)  # 等待进程完成，设置比工具超时稍长的时间
+
+        end_time = time.time()
+
+        if process.returncode == 124:
+            result = "TIMEOUT"
+        elif process.returncode != 0:
+            result = "ERROR"
+            print("stderr:", stderr)
+        else:
+            result = float(output.strip())
+
+    except KeyboardInterrupt:
+        print("\n[Ctrl+C detected] Killing DDSim...")
+
+        # 🔥 杀整个进程组（关键）
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+
+        end_time = time.time()
+        result = "INTERRUPTED"
+    except subprocess.TimeoutExpired:
+        print("\n[Timeout] Killing DDSim...")
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        end_time = time.time()
+        result = "TIMEOUT"
+
+    runtime = end_time - start_time
+
+    results_df = utils.add_result_to_df(run_data, result, runtime, results_df)
+    utils.save_results_to_file(results_file_name, results_df)
+
+    print("DDSim", "runtime:", runtime, "result:", result)
+
+    return True
 
 for file in benchmarks_list:
+    print(f"Processing {file}...")
     run_QuokkaSharp(file, "gpmc")
-    # run_SliQSim(file)
-    # run_Quasimodo(file)
-    
     run_QuokkaSharp(file, "ganak")
+    # run_SliQSim(file)
+    run_Quasimodo(file)
+    run_DDSim(file)
     
 
 # for file in tqdm(benchmarks_list, desc="Processing files", unit="file"):

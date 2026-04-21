@@ -1,0 +1,8 @@
+c31.orig.qasm
+c48.orig.qasm
+c60.orig.qasm
+c92.orig.qasm
+c47.orig.qasm
+c51.orig.qasm
+c64.orig.qasm
+c78.orig.qasm
